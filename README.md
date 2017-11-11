@@ -1,0 +1,2 @@
+# gentoo
+Gentoo related things.
