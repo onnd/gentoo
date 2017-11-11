@@ -1,0 +1,51 @@
+#!/bin/bash
+#
+# Script that retries a failing emerge
+# Anton Lindström (anton@antonanton.com) 2017-11-11
+#
+# I think there is a manufacturing fault with my CPU or my memory. Compiles somtimes randomly fail.
+# This script resumes the emerge compile where it left off instead of starting over.
+#
+# NOTE: If you try to resume a failed compile the day after it failed it will start over anyway because of timestamps.
+#
+
+
+ATTEMPTS=25
+
+if [ "$#" -ne "1" ]
+then
+	echo "USAGE: continue-emerge package"
+	exit 0
+fi
+
+group=$(echo $1 | cut -d/ -f1)
+name=$(echo $1 | cut -d/ -f2)
+base=$(echo $name | sed 's/-[0-9].*//')
+ebuild="/usr/portage/${group}/${base}/${name}.ebuild"
+
+if [ -f $ebuild ]
+then
+	if [ $(whoami) != 'root' ]
+	then
+		echo "You need to run this script as root."
+		exit 3
+	fi
+	echo "Found ebuild: $ebuild"
+	for i in $(seq 1 $ATTEMPTS)
+	do
+		echo "Running ($i/$ATTEMPTS): ebuild $ebuild compile"
+		ebuild $ebuild compile
+		if [ $? == 0 ]
+		then
+			echo "ebuild compile finished successfully."
+			echo "Running: ebuild $ebuild merge"
+			ebuild $ebuild merge
+			exit 0
+		fi
+	done
+	echo "Tried ebuild compile $ATTEMPTS times, giving up."
+	exit 1
+else
+	echo "Unable to find a suitable ebuild."
+	exit 2
+fi

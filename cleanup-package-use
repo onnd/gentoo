@@ -1,0 +1,79 @@
+#!/bin/bash
+#
+# Script that tries to determine if all manually specified use flags are really needed.
+# Anton Lindström (anton@antonanton.com) 2017-11-11
+#
+# I wrote this script to keep track of "use-flag dependencies" that I manually had to add to my package.use
+# I suggest you keep these dependency triggered use flags in a separate file from the use flags you have
+# entered of your "free will". I use /etc/portage/package.use/dependencies and /etc/portage/package.use/manual respectively.
+# The script assumes that /etc/portage/package.use is a directory, not a file.
+#
+# This script will no longer serve any purpose once https://bugs.gentoo.org/show_bug.cgi?id=258371 is closed.
+#
+
+
+DIR="/etc/portage/package.use"
+DEP="/etc/portage/package.use/dependencies"
+DEPTEMP="/etc/portage/package.use/xtemp"
+EQUERY="/usr/bin/equery"
+
+echo "Checking that all packages in package.use are installed..."
+MATCH=0
+LIST=$(sed 's:^\([^# ]*/[^# ]*\).*:\1:;tx;d;:x' $DIR/*)
+SIZE=$(echo $LIST | wc -w)
+c=0
+LIST=""
+for i in $LIST
+do
+	c=$(( $c + 1))
+	echo -ne "Processing $c / $SIZE...\r"
+	if ! $EQUERY --quiet list $i >&/dev/null
+	then
+		echo "package '$i' is not installed."
+		MATCH=1
+	fi
+done
+
+if [ $MATCH -eq "0" ]
+then
+	echo "All packages in $DIR are installed."
+fi
+
+echo "Checking that all packages in $DEP are needed..."
+PKGLIST=($(sed 's:^\([^# ]*/[^# ]*\).*:\1:;tx;d;:x' $DEP))
+PARLIST=($(sed 's:^[^# ]*/[^# ]*[[:space:]]*\([^# ]*\):\1:;tx;d;:x' $DEP))
+if [ ${#PKGLIST[@]} -ne ${#PARLIST[@]} ]
+then
+	echo "Error: Size of PKGLIST is not the same as size of PARLIST."
+	echo "Corrupt $DEP ?"
+	exit 0
+fi
+MATCH=0
+TMP=$(mktemp)
+for ((i = 0; i < ${#PKGLIST[@]}; ++i))
+do
+	c=$((i + 1))
+	echo -ne "Processing $c / ${#PKGLIST[@]}...\r"
+	if [ -f $DEPTEMP ]
+	then 
+		rm -f $DEPTEMP
+	fi
+	echo "${PKGLIST[i]} -${PARLIST[i]}" > $DEPTEMP
+	emerge -ep @world ${PKGLIST[i]} >$TMP 2>&1
+	RET=$?
+	rm -f $DEPTEMP
+	if ! grep -q "dependency conflict\|The following USE changes" $TMP
+	then
+		echo "package '${PKGLIST[i]}' might not need the ${PARLIST[i]} use flag."
+		MATCH=1
+	fi
+	sleep 1
+done
+rm $TMP
+
+if [ $MATCH -eq "0" ]
+then
+	echo "Didn't find any redundant packages in $DEP."
+else
+	echo
+fi
